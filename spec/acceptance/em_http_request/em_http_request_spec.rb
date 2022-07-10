@@ -44,6 +44,27 @@ unless RUBY_PLATFORM =~ /java/
 
           expect(urls).to eq([http_url, https_url])
         end
+
+        it "should not repeat content-length header" do
+          # This monkey patch appears to fix the issue
+          # module EventMachine
+          #   class WebMockHttpClient
+          #     def connection_completed
+          #       @state = :response_header
+          #       headers = request_signature.headers.inject({}) { |h, (k, v)| h[k.to_s.downcase] = v; h }
+          #       send_request(headers, request_signature.body)
+          #     end
+          #   end
+          # end
+          EM.run do
+            request = EM::HttpRequest.new("http://httpbin.org/post")
+            expected_req_string = "POST /post HTTP/1.1\r\nContent-Length: 3\r\nConnection: close\r\nHost: httpbin.org\r\nUser-Agent: EventMachine HttpClient\r\nAccept-Encoding: gzip, compressed\r\n\r\n"
+            allow_any_instance_of(EventMachine::HttpStubConnection).to receive(:send_data).with("foo").and_call_original
+            expect_any_instance_of(EventMachine::HttpStubConnection).to receive(:send_data).with(expected_req_string).and_call_original
+            response = request.post(body: "foo", head: {"Content-Length" => "3"})
+            response.callback { EM.stop }
+          end
+        end
       end
 
       describe "with middleware" do
